@@ -52,9 +52,23 @@ from openhands.sdk.settings import (
     export_agent_settings_schema,
 )
 
-LITE_LLM_API_URL = os.environ.get(
-    'LITE_LLM_API_URL', 'https://llm-proxy.app.all-hands.dev'
-)
+
+def _get_lite_llm_api_url() -> str:
+    """Get the LiteLLM API URL from config.toml first, then environment variable.
+
+    Reads [llm].base_url from config.toml first.
+    Falls back to LITE_LLM_API_URL env var, then the default proxy URL.
+    """
+    from openhands.app_server.config_toml_loader import get_llm_base_url
+
+    toml_base_url = get_llm_base_url()
+    if toml_base_url:
+        return toml_base_url
+
+    return os.environ.get('LITE_LLM_API_URL', 'https://llm-proxy.app.all-hands.dev')
+
+
+LITE_LLM_API_URL = _get_lite_llm_api_url()
 
 # Create router with /api/v1/settings prefix
 router = APIRouter(

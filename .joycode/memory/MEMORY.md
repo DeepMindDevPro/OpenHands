@@ -1,0 +1,1 @@
+- [user_role](user_role.md) — User is a top Java engineer transitioning to AI agent development

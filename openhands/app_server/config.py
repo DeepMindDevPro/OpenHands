@@ -113,8 +113,16 @@ def get_default_permitted_cors_origins() -> list[str]:
 def get_openhands_provider_base_url() -> str | None:
     """Return the base URL for the OpenHands provider, if configured.
 
-    Falls back to LLM_BASE_URL for backward compatibility.
+    Reads from config.toml [llm].base_url first.
+    Falls back to OPENHANDS_PROVIDER_BASE_URL or LLM_BASE_URL env var
+    for backward compatibility.
     """
+    from openhands.app_server.config_toml_loader import get_llm_base_url
+
+    toml_base_url = get_llm_base_url()
+    if toml_base_url:
+        return toml_base_url
+
     return os.getenv('OPENHANDS_PROVIDER_BASE_URL') or os.getenv('LLM_BASE_URL') or None
 
 
@@ -287,17 +295,25 @@ def config_from_env() -> AppServerConfig:
         from openhands.app_server.config_api.default_llm_model_service import (
             DefaultLLMModelServiceInjector,
         )
+        from openhands.app_server.config_toml_loader import (
+            get_llm_config as get_toml_llm,
+        )
 
         llm_model_kwargs: dict = {}
-        aws_region = os.getenv('AWS_REGION_NAME')
-        aws_key = os.getenv('AWS_ACCESS_KEY_ID')
-        aws_secret = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+        # Read AWS config from config.toml first, fall back to env vars
+        toml_llm = get_toml_llm()
+        aws_region = toml_llm.get('aws_region_name') or os.getenv('AWS_REGION_NAME')
+        aws_key = toml_llm.get('aws_access_key_id') or os.getenv('AWS_ACCESS_KEY_ID')
+        aws_secret = toml_llm.get('aws_secret_access_key') or os.getenv(
+            'AWS_SECRET_ACCESS_KEY'
+        )
         if aws_region and aws_key and aws_secret:
             llm_model_kwargs['aws_region_name'] = aws_region
             llm_model_kwargs['aws_access_key_id'] = SecretStr(aws_key)
             llm_model_kwargs['aws_secret_access_key'] = SecretStr(aws_secret)
 
-        ollama_url = os.getenv('OLLAMA_BASE_URL')
+        ollama_url = toml_llm.get('ollama_base_url') or os.getenv('OLLAMA_BASE_URL')
         if ollama_url:
             llm_model_kwargs['ollama_base_url'] = ollama_url
 

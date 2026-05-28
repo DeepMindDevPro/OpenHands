@@ -108,16 +108,24 @@ def _get_slack_enabled() -> bool:
 
 
 def _get_feature_flags() -> WebClientFeatureFlags:
-    """Get feature flags from environment variables.
+    """Get feature flags from config.toml and environment variables.
 
-    Reads ENABLE_BILLING, HIDE_LLM_SETTINGS, ENABLE_JIRA, ENABLE_JIRA_DC,
-    ENABLE_LINEAR, HIDE_USERS_PAGE, HIDE_BILLING_PAGE, HIDE_INTEGRATIONS_PAGE,
-    and OH_ENABLE_ONBOARDING from environment. Each flag is True only if the
-    corresponding env var is exactly 'true', otherwise False.
+    For LLM-related settings (hide_llm_settings), reads from config.toml
+    [llm].hide_settings first, then falls back to HIDE_LLM_SETTINGS env var.
+    Other feature flags continue to read from environment variables.
     """
+    from openhands.app_server.config_toml_loader import get_llm_config
+
+    toml_llm = get_llm_config()
+    toml_hide = toml_llm.get('hide_settings')
+    if toml_hide is not None:
+        hide_llm_settings = bool(toml_hide)
+    else:
+        hide_llm_settings = os.getenv('HIDE_LLM_SETTINGS', 'false') == 'true'
+
     return WebClientFeatureFlags(
         enable_billing=os.getenv('ENABLE_BILLING', 'false') == 'true',
-        hide_llm_settings=os.getenv('HIDE_LLM_SETTINGS', 'false') == 'true',
+        hide_llm_settings=hide_llm_settings,
         enable_jira=os.getenv('ENABLE_JIRA', 'false') == 'true',
         enable_jira_dc=os.getenv('ENABLE_JIRA_DC', 'false') == 'true',
         enable_linear=os.getenv('ENABLE_LINEAR', 'false') == 'true',

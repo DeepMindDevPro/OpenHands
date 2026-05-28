@@ -6,13 +6,28 @@ from openhands.app_server.utils.import_utils import get_impl
 from openhands.app_server.utils.logger import openhands_logger as logger
 
 
+def _get_hide_llm_settings() -> bool:
+    """Get HIDE_LLM_SETTINGS from config.toml first, then environment variable.
+
+    Reads [llm].hide_settings from config.toml first.
+    Falls back to HIDE_LLM_SETTINGS env var.
+    """
+    from openhands.app_server.config_toml_loader import get_llm_config
+
+    toml_llm = get_llm_config()
+    toml_hide = toml_llm.get('hide_settings')
+    if toml_hide is not None:
+        return bool(toml_hide)
+    return os.environ.get('HIDE_LLM_SETTINGS', 'false') == 'true'
+
+
 class ServerConfig(ServerConfigInterface):
     config_cls = os.environ.get('OPENHANDS_CONFIG_CLS', None)
     app_mode = AppMode.OPENHANDS
     posthog_client_key = 'phc_3ESMmY9SgqEAGBB6sMGK5ayYHkeUuknH2vP6FmWH9RA'
     github_client_id = os.environ.get('GITHUB_APP_CLIENT_ID', '')
     enable_billing = os.environ.get('ENABLE_BILLING', 'false') == 'true'
-    hide_llm_settings = os.environ.get('HIDE_LLM_SETTINGS', 'false') == 'true'
+    hide_llm_settings = _get_hide_llm_settings()
     # This config is used to hide the microagent management page from the users for now. We will remove this once we release the new microagent management page.
     settings_store_class: str = (
         'openhands.app_server.settings.file_settings_store.FileSettingsStore'

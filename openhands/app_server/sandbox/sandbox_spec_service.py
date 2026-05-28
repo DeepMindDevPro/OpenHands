@@ -70,46 +70,46 @@ def get_agent_server_image() -> str:
 
 
 # Prefixes for environment variables that should be auto-forwarded to agent-server
-# These are typically configuration variables that affect the agent's behavior
-AUTO_FORWARD_PREFIXES = ('LLM_', 'LMNR_')
+# LLM_* prefix is no longer auto-forwarded; LLM config comes from config.toml
+AUTO_FORWARD_PREFIXES = ('LMNR_',)
 
 
 def get_agent_server_env() -> dict[str, str]:
     """Get environment variables to be injected into agent server sandbox environments.
 
-    This function combines two sources of environment variables:
+    This function combines three sources of environment variables:
 
-    1. **Auto-forwarded variables**: Environment variables with certain prefixes
-       (e.g., LLM_*, LMNR_*) are automatically forwarded to the agent-server container.
-       This ensures that LLM configuration like timeouts and retry settings
-       work correctly in the two-container V1 architecture, as well as
-       Laminar monitoring/analytics configuration.
+    1. **LLM config from config.toml**: LLM configuration (model, api_key,
+       base_url, etc.) is read from config.toml instead of environment variables.
+       This is the primary and preferred source for LLM settings.
 
-    2. **Explicit overrides via OH_AGENT_SERVER_ENV**: A JSON string that allows
+    2. **Auto-forwarded variables**: Environment variables with the LMNR_ prefix
+       are automatically forwarded to the agent-server container.
+       LLM_* prefix forwarding is disabled since LLM config now comes from
+       config.toml (source 1 above).
+
+    3. **Explicit overrides via OH_AGENT_SERVER_ENV**: A JSON string that allows
        setting arbitrary environment variables in the agent-server container.
-       Values set here take precedence over auto-forwarded variables.
+       Values set here take precedence over config.toml and auto-forwarded variables.
 
-    Auto-forwarded prefixes:
-        - LLM_* : LLM configuration (timeout, retries, model settings, etc.)
-        - LMNR_* : Laminar monitoring/analytics configuration
+    Config sources (in priority order):
+        - config.toml [llm] section → LLM_MODEL, LLM_API_KEY, LLM_BASE_URL, etc.
+        - LMNR_* env vars → auto-forwarded for Laminar monitoring/analytics
+        - OH_AGENT_SERVER_ENV JSON → explicit overrides (highest priority)
 
     Usage:
-        # Auto-forwarding (no action needed):
-        export LLM_TIMEOUT=3600
-        export LLM_NUM_RETRIES=10
-        # These will automatically be available in the agent-server
+        # LLM config is now read from config.toml automatically:
+        # [llm]
+        # model = "openai/gpt-4"
+        # api_key = "sk-xxx"
+        # base_url = "https://api.openai.com/v1"
 
-        # Auto-forwarding for Laminar:
+        # Auto-forwarding for Laminar (still from env vars):
         export LMNR_PROJECT_API_KEY=your-api-key
         export LMNR_BASE_URL=https://app.lmnr.ai
-        # These will automatically be available in the agent-server
 
-        # Explicit override via JSON:
+        # Explicit override via JSON (takes precedence over all):
         OH_AGENT_SERVER_ENV='{"DEBUG": "true", "CUSTOM_VAR": "value"}'
-
-        # Override an auto-forwarded variable:
-        export LLM_TIMEOUT=3600  # Would be auto-forwarded as 3600
-        OH_AGENT_SERVER_ENV='{"LLM_TIMEOUT": "7200"}'  # Overrides to 7200
 
     Returns:
         dict[str, str]: Dictionary of environment variable names to values.
@@ -120,13 +120,20 @@ def get_agent_server_env() -> dict[str, str]:
     """
     result: dict[str, str] = {}
 
-    # Step 1: Auto-forward environment variables with recognized prefixes
+    # Step 1: Load LLM configuration from config.toml (primary source)
+    from openhands.app_server.config_toml_loader import get_agent_server_env_from_toml
+
+    toml_llm_env = get_agent_server_env_from_toml()
+    result.update(toml_llm_env)
+
+    # Step 2: Auto-forward environment variables with LMNR_ prefix only
+    # LLM_* prefix forwarding is replaced by config.toml (Step 1)
     for key, value in os.environ.items():
-        if any(key.startswith(prefix) for prefix in AUTO_FORWARD_PREFIXES):
+        if key.startswith('LMNR_'):
             result[key] = value
 
-    # Step 2: Apply explicit overrides from OH_AGENT_SERVER_ENV
-    # These take precedence over auto-forwarded variables
+    # Step 3: Apply explicit overrides from OH_AGENT_SERVER_ENV
+    # These take precedence over config.toml and auto-forwarded variables
     explicit_env = env_parser.from_env(dict[str, str], 'OH_AGENT_SERVER_ENV')
     result.update(explicit_env)
 

@@ -65,15 +65,35 @@ PERSONAL_WORKSPACE_VERSION_TO_MODEL = {
     5: 'minimax-m2.5',
 }
 
-LITELLM_DEFAULT_MODEL = os.getenv('LITELLM_DEFAULT_MODEL')
+def _get_litellm_default_model() -> str | None:
+    """Get LITELLM_DEFAULT_MODEL from config.toml first, then environment variable."""
+    from openhands.app_server.config_toml_loader import get_llm_model
+
+    toml_model = get_llm_model()
+    if toml_model:
+        return toml_model
+    return os.getenv('LITELLM_DEFAULT_MODEL')
+
+
+def _get_lite_llm_api_url() -> str:
+    """Get LITE_LLM_API_URL from config.toml first, then environment variable."""
+    from openhands.app_server.config_toml_loader import get_llm_base_url
+
+    toml_base_url = get_llm_base_url()
+    if toml_base_url:
+        return toml_base_url
+    return os.environ.get(
+        'LITE_LLM_API_URL', 'https://llm-proxy.app.all-hands.dev'
+    )
+
+
+LITELLM_DEFAULT_MODEL = _get_litellm_default_model()
 
 # Current user settings version - this should be the latest key in USER_SETTINGS_VERSION_TO_MODEL
 ORG_SETTINGS_VERSION = max(PERSONAL_WORKSPACE_VERSION_TO_MODEL.keys())
 PERSONAL_WORKSPACE_VERSION = max(PERSONAL_WORKSPACE_VERSION_TO_MODEL.keys())
 
-LITE_LLM_API_URL = os.environ.get(
-    'LITE_LLM_API_URL', 'https://llm-proxy.app.all-hands.dev'
-)
+LITE_LLM_API_URL = _get_lite_llm_api_url()
 LITE_LLM_TEAM_ID = os.environ.get('LITE_LLM_TEAM_ID', None)
 LITE_LLM_API_KEY = os.environ.get('LITE_LLM_API_KEY', None)
 # Timeout in seconds for BYOR key verification requests to LiteLLM

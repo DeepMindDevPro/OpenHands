@@ -57,7 +57,18 @@ class SaaSServerConfig(ServerConfig):
     posthog_client_key: str = os.environ.get('POSTHOG_CLIENT_KEY', '')
     github_client_id: str = os.environ.get('GITHUB_APP_CLIENT_ID', '')
     enable_billing = os.environ.get('ENABLE_BILLING', 'false') == 'true'
-    hide_llm_settings = os.environ.get('HIDE_LLM_SETTINGS', 'false') == 'true'
+    hide_llm_settings = _get_hide_llm_settings_from_toml_or_env()
+
+
+def _get_hide_llm_settings_from_toml_or_env() -> bool:
+    """Get HIDE_LLM_SETTINGS from config.toml first, then environment variable."""
+    from openhands.app_server.config_toml_loader import get_llm_config
+
+    toml_llm = get_llm_config()
+    toml_hide = toml_llm.get('hide_settings')
+    if toml_hide is not None:
+        return bool(toml_hide)
+    return os.environ.get('HIDE_LLM_SETTINGS', 'false') == 'true'
     auth_url: str | None = os.environ.get('AUTH_URL')
     settings_store_class: str = 'storage.saas_settings_store.SaasSettingsStore'
     secret_store_class: str = 'storage.saas_secrets_store.SaasSecretsStore'

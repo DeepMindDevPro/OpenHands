@@ -1,15 +1,13 @@
 {
-    // force *nix line endings so files don't look modified in container run from Windows clone
     "files.eol": "\n",
     "files.trimTrailingWhitespace": true,
     "files.insertFinalNewline": true,
-
-    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "python.defaultInterpreterPath": "/Users/gechunfa1/Library/Caches/pypoetry/virtualenvs/openhands-ai-KUozWec0-py3.12/bin/python",
     "python.terminal.activateEnvironment": true,
     "python.analysis.autoImportCompletions": true,
     "python.analysis.autoSearchPaths": true,
     "python.analysis.extraPaths": [
-        "./.venv/lib/python3.12/site-packages"
+        "/Users/gechunfa1/Library/Caches/pypoetry/virtualenvs/openhands-ai-KUozWec0-py3.12/lib/python3.12/site-packages"
     ],
     "python.analysis.packageIndexDepths": [
         {
@@ -17,6 +15,5 @@
             "depth": 10,
             "includeAllSymbols": true
         }
-    ],
-    "python.analysis.stubPath": "./.venv/lib/python3.12/site-packages",
+    ]
 }

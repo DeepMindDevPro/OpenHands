@@ -33,7 +33,20 @@ warnings.filterwarnings('ignore', category=SyntaxWarning, module=r'pydub\.utils'
 
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 DEBUG = os.getenv('DEBUG', 'False').lower() in ['true', '1', 'yes']
-DEBUG_LLM = os.getenv('DEBUG_LLM', 'False').lower() in ['true', '1', 'yes']
+
+
+def _get_debug_llm() -> bool:
+    """Get DEBUG_LLM from config.toml first, then environment variable."""
+    from openhands.app_server.config_toml_loader import get_llm_config
+
+    toml_llm = get_llm_config()
+    toml_debug = toml_llm.get('debug')
+    if toml_debug is not None:
+        return bool(toml_debug)
+    return os.getenv('DEBUG_LLM', 'False').lower() in ['true', '1', 'yes']
+
+
+DEBUG_LLM = _get_debug_llm()
 
 # Structured logs with JSON, disabled by default
 LOG_JSON = os.getenv('LOG_JSON', 'False').lower() in ['true', '1', 'yes']

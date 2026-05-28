@@ -972,22 +972,46 @@ class LiveStatusAppConversationService(AppConversationServiceBase):
         Returns:
             Configured LLM instance
         """
+        from openhands.app_server.config_toml_loader import (
+            get_llm_api_key,
+            get_llm_base_url,
+            get_llm_model,
+        )
+
+        # Priority: user settings (settings.json) > explicit model > config.toml > SDK default
+        # settings.json is the single source of truth; config.toml serves as fallback
+        toml_model = get_llm_model()
         model: str = (
             llm_model
             or user.agent_settings.llm.model
+            or toml_model
             or LLM.model_fields['model'].default
         )
 
+        # Use user's base_url if set, otherwise fall back to config.toml
+        user_base_url = user.agent_settings.llm.base_url
+        if not user_base_url:
+            user_base_url = get_llm_base_url()
+
         base_url = resolve_provider_llm_base_url(
             model,
-            user.agent_settings.llm.base_url,
+            user_base_url,
             provider_base_url=self.openhands_provider_base_url,
         )
+
+        # Use user's api_key if set, otherwise fall back to config.toml
+        api_key = user.agent_settings.llm.api_key
+        if not api_key or (
+            isinstance(api_key, SecretStr) and not api_key.get_secret_value()
+        ):
+            toml_api_key = get_llm_api_key()
+            if toml_api_key:
+                api_key = SecretStr(toml_api_key)
 
         return LLM(
             model=model,
             base_url=base_url,
-            api_key=user.agent_settings.llm.api_key,
+            api_key=api_key,
             usage_id='agent',
         )
 
