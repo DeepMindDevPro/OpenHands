@@ -963,6 +963,34 @@ async def batch_get_app_conversation_start_tasks(
     return start_tasks
 
 
+@router.get('/{conversation_id}/token-timeline')
+async def get_token_timeline(
+    conversation_id: UUID,
+    app_conversation_info_service: AppConversationInfoService = (
+        app_conversation_info_service_dependency
+    ),
+) -> dict:
+    """Get the token usage timeline for a conversation.
+
+    Returns per-turn token usage snapshots and condensation details for visualization.
+
+    Args:
+        conversation_id: The UUID of the conversation
+
+    Returns:
+        A dict containing timeline entries and condensation details
+    """
+    from openhands.app_server.app_conversation.sql_app_conversation_info_service import (
+        SQLAppConversationInfoService,
+    )
+
+    if not isinstance(app_conversation_info_service, SQLAppConversationInfoService):
+        return {'timeline': [], 'condensation_details': []}
+
+    result = await app_conversation_info_service.get_token_timeline(conversation_id)
+    return result
+
+
 @router.get('/{conversation_id}/file')
 async def read_conversation_file(
     conversation_id: UUID,

@@ -27,12 +27,29 @@ runtime = "local"
 model = "openai/pre-qwen35-35B-A3B"
 api_key = ""
 base_url = ""
+stream = true
+max_input_tokens = 32000
+max_output_tokens = 32000
+timeout = 600
+num_retries = 5
+reasoning_effort = "none"
+native_tool_calling = true
+drop_params = true
+
+[security]
+enable_security_analyzer = true
 ```
 
 关键说明：
 - `runtime = "local"` 使用 **ProcessSandbox**，直接在本地启动子进程执行命令，无需 Docker
 - `model = "openai/pre-qwen35-35B-A3B"` 中的 `openai/` 前缀告诉 litellm 使用 OpenAI 兼容协议
 - `base_url` 是京东云大模型的 API 端点（兼容 OpenAI 协议）
+- `max_input_tokens = 32000` 匹配模型 32K 上下文窗口，防止发送超出模型能力的请求
+- `max_output_tokens = 32000` 匹配模型 32K 最大输出
+- `timeout = 600` 增加超时到 10 分钟，32K 输出需要更长时间
+- `reasoning_effort = "none"` Qwen 不支持 OpenAI 的 reasoning_effort 参数，设为 none 避免发送无效参数
+- `native_tool_calling = true` Qwen 支持原生工具调用
+- `drop_params = true` 自动丢弃模型不支持的参数
 
 ---
 
@@ -188,6 +205,8 @@ INSTALL_DOCKER=0 RUNTIME=local poetry run uvicorn openhands.server.listen:app \
 1. **LLM 已配置**：京东云千问模型已通过 API 预配置，设置持久化到 `~/.openhands/settings.json`。无需在 UI 中再次手动配置
 2. **security_analyzer 已禁用**：京东云千问模型不支持在工具调用中输出 `security_risk` 字段，已将 `security_analyzer` 从 `llm` 改为 `None`（禁用），否则会报错 `Failed to provide security_risk field in tool 'terminal'`
 3. **流式输出已开启**：`stream = true` 已配置，LLM 响应会逐 token 流式返回到前端，无需等待完整响应
+4. **上下文窗口已优化**：`max_input_tokens = 32000` 和 `max_output_tokens = 32000` 匹配模型 32K 上下文能力
+5. **Anthropic/OpenAI 专属参数已禁用**：`reasoning_effort = "none"`, `enable_encrypted_reasoning = false`, `caching_prompt = false` 等 Qwen 不支持的参数已关闭
 2. **京东云 LLM 兼容性**：京东云使用 OpenAI 兼容协议，通过 `openai/` 前缀 + 自定义 `base_url` 即可集成
 3. **Process Sandbox**：`RUNTIME=local` 模式下，agent 执行的命令直接在你本机运行，注意安全风险
 4. **不要绑定 0.0.0.0**：保持默认 `127.0.0.1`，避免暴露到局域网

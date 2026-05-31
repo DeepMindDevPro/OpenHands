@@ -226,6 +226,16 @@ export const isACPToolCallEvent = (
 ): event is ACPToolCallEvent =>
   "kind" in event && event.kind === "ACPToolCallEvent";
 
+/**
+ * Type guard function to check if an event is a condensation event
+ */
+export const isCondensationEvent = (
+  event: OpenHandsEvent,
+): event is import("./core/events/condensation-event").CondensationEvent =>
+  "kind" in event &&
+  event.kind === "CondensationEvent" &&
+  "forgotten_event_ids" in event;
+
 // =============================================================================
 // TEMPORARY COMPATIBILITY TYPE GUARDS
 // These will be removed once we fully migrate to V1 events

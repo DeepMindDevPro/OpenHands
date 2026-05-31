@@ -108,12 +108,18 @@ class AppConversationInfoService(ABC):
         self,
         event: ConversationStateUpdateEvent,
         conversation_id: UUID,
+        is_condensed: bool = False,
+        condensation_summary: str | None = None,
+        condensation_forgotten_count: int = 0,
     ) -> None:
         """Process a stats event and update conversation statistics.
 
         Args:
             event: The ConversationStateUpdateEvent with key='stats'
             conversation_id: The ID of the conversation to update
+            is_condensed: Whether a condensation event occurred in the same batch
+            condensation_summary: Summary text from the condensation event (if any)
+            condensation_forgotten_count: Number of events forgotten by condensation (if any)
         """
 
 

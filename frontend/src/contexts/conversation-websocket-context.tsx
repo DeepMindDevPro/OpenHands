@@ -13,6 +13,7 @@ import { useEventStore } from "#/stores/use-event-store";
 import { useErrorMessageStore } from "#/stores/error-message-store";
 import { useOptimisticUserMessageStore } from "#/stores/optimistic-user-message-store";
 import { useV1ConversationStateStore } from "#/stores/v1-conversation-state-store";
+import useTokenTimelineStore from "#/stores/token-timeline-store";
 import { useCommandStore } from "#/stores/command-store";
 import { useBrowserStore } from "#/stores/browser-store";
 import {
@@ -157,6 +158,13 @@ export function ConversationWebSocketProvider({
   // Helper function to update metrics from stats event
   const updateMetricsFromStats = useCallback(
     (event: ConversationStateUpdateEventStats) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[TOKEN-TIMELINE] stats event received:",
+        JSON.stringify(
+          event.value?.usage_to_metrics?.agent ?? "no-agent",
+        ).slice(0, 300),
+      );
       if (event.value.usage_to_metrics?.agent) {
         const agentMetrics = event.value.usage_to_metrics.agent;
         const metrics = {
@@ -180,6 +188,77 @@ export function ConversationWebSocketProvider({
             : null,
         };
         useMetricsStore.getState().setMetrics(metrics);
+
+        // --- Token Timeline: append per-turn data ---
+        // Strategy: prefer token_usages[] (per-turn data from SDK runtime),
+        // fall back to accumulated_token_usage snapshot if token_usages is empty
+        const timelineStore = useTokenTimelineStore.getState();
+        const ridSet = new Set(timelineStore.entries.map((e) => e.response_id));
+        // eslint-disable-next-line no-console
+        console.log(
+          "[TOKEN-TIMELINE] token_usages length:",
+          agentMetrics.token_usages?.length ?? 0,
+          "accumulated_token_usage:",
+          !!agentMetrics.accumulated_token_usage,
+        );
+
+        if (agentMetrics.token_usages?.length) {
+          // SDK runtime provides per-turn token usage data
+          const newEntries = agentMetrics.token_usages
+            .filter((tu) => tu.response_id && !ridSet.has(tu.response_id))
+            .map((tu, i) => ({
+              turn: timelineStore.entries.length + i + 1,
+              prompt_tokens: tu.prompt_tokens,
+              completion_tokens: tu.completion_tokens,
+              per_turn_token: tu.per_turn_token,
+              context_window: tu.context_window,
+              is_condensed: false,
+              condenser_prompt_tokens: null as number | null,
+              response_id: tu.response_id,
+            }));
+          if (newEntries.length > 0) {
+            timelineStore.addEntries(newEntries);
+          }
+        } else if (agentMetrics.accumulated_token_usage) {
+          // Fallback: use accumulated snapshot as a single timeline point
+          const usage = agentMetrics.accumulated_token_usage;
+          const rid = usage.response_id;
+          if (rid && ridSet.has(rid)) {
+            // Already have this entry, skip
+            // eslint-disable-next-line no-console
+            console.log("[TOKEN-TIMELINE] skipping duplicate, rid:", rid);
+          } else {
+            const newEntry = {
+              turn: timelineStore.entries.length + 1,
+              prompt_tokens: usage.prompt_tokens,
+              completion_tokens: usage.completion_tokens,
+              per_turn_token: usage.per_turn_token,
+              context_window: usage.context_window,
+              is_condensed: false,
+              condenser_prompt_tokens: null as number | null,
+              response_id: rid || "",
+            };
+            timelineStore.addEntries([newEntry]);
+            // eslint-disable-next-line no-console
+            console.log(
+              "[TOKEN-TIMELINE] added entry, turn:",
+              newEntry.turn,
+              "prompt_tokens:",
+              newEntry.prompt_tokens,
+              "store entries after:",
+              useTokenTimelineStore.getState().entries.length,
+            );
+          }
+        }
+
+        // --- Condenser: mark last entry as condensed if condenser was used ---
+        const condenserMetrics = event.value.usage_to_metrics?.condenser;
+        if (condenserMetrics?.accumulated_token_usage) {
+          const condenserTimelineStore = useTokenTimelineStore.getState();
+          condenserTimelineStore.markLastEntryCondensed(
+            condenserMetrics.accumulated_token_usage.prompt_tokens,
+          );
+        }
       }
     },
     [],
@@ -331,6 +410,8 @@ export function ConversationWebSocketProvider({
     receivedEventCountRefMain.current = 0;
     // Reset the tracked event ref when conversation changes
     latestPlanningFileEventRef.current = null;
+    // Reset token timeline store when conversation changes
+    useTokenTimelineStore.getState().reset();
   }, [conversationId]);
 
   const { data: preloadedEvents, isFetched: isHistoryFetched } =

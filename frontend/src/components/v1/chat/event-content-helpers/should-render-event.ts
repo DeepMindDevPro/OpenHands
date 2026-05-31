@@ -8,6 +8,7 @@ import {
   isConversationStateUpdateEvent,
   isHookExecutionEvent,
   isACPToolCallEvent,
+  isCondensationEvent,
   isV1Event,
 } from "#/types/v1/type-guards";
 
@@ -61,6 +62,11 @@ export const shouldRenderEvent = (event: OpenHandsEvent) => {
 
   // Render ACP sub-agent tool call events
   if (isACPToolCallEvent(event)) {
+    return true;
+  }
+
+  // Render condensation events (shown as inline markers in chat)
+  if (isCondensationEvent(event)) {
     return true;
   }
 

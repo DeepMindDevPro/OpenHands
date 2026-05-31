@@ -5,6 +5,7 @@ import {
   isActionEvent,
   isObservationEvent,
   isACPToolCallEvent,
+  isCondensationEvent,
 } from "#/types/v1/type-guards";
 import { MonoComponent } from "../../../features/chat/mono-component";
 import { PathComponent } from "../../../features/chat/path-component";
@@ -281,6 +282,14 @@ export const getEventContent = (
       title: event.title,
     });
     details = getACPToolCallContent(event);
+  } else if (isCondensationEvent(event)) {
+    title = "Context Condensed";
+    const forgottenCount = event.forgotten_event_ids?.length ?? 0;
+    const { summary } = event;
+    details = `Context condensed · ${forgottenCount} historical event${forgottenCount !== 1 ? "s" : ""} summarized`;
+    if (summary) {
+      details += `\n\n> ${summary.slice(0, 200)}${summary.length > 200 ? "..." : ""}`;
+    }
   } else if (
     // Lenient fallback for action-like events that fail the strict isActionEvent() guard
     // (e.g., missing tool_name or tool_call_id). Extract a title from the action kind

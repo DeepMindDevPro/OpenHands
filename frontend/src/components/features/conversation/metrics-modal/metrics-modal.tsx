@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BaseModalTitle } from "#/components/shared/modals/confirmation-modals/base-modal";
 import { ModalBackdrop } from "#/components/shared/modals/modal-backdrop";
@@ -8,9 +8,12 @@ import { CostSection } from "./cost-section";
 import { UsageSection } from "./usage-section";
 import { ContextWindowSection } from "./context-window-section";
 import { EmptyState } from "./empty-state";
+import { TokenTimelineChart } from "./token-timeline-chart";
 import useMetricsStore from "#/stores/metrics-store";
 import { useActiveConversation } from "#/hooks/query/use-active-conversation";
 import { useSandboxMetrics } from "#/hooks/query/use-sandbox-metrics";
+
+type MetricsTab = "overview" | "timeline";
 
 interface MetricsModalProps {
   isOpen: boolean;
@@ -21,6 +24,7 @@ export function MetricsModal({ isOpen, onOpenChange }: MetricsModalProps) {
   const { t } = useTranslation();
   const storeMetrics = useMetricsStore();
   const { data: conversation } = useActiveConversation();
+  const [activeTab, setActiveTab] = useState<MetricsTab>("overview");
 
   const conversationId = conversation?.id;
   const conversationUrl = conversation?.conversation_url;
@@ -66,33 +70,65 @@ export function MetricsModal({ isOpen, onOpenChange }: MetricsModalProps) {
 
   if (!isOpen) return null;
 
+  const tabClass = (tab: MetricsTab) =>
+    `px-3 py-1.5 text-sm rounded-md transition-colors ${
+      activeTab === tab
+        ? "bg-blue-600 text-white"
+        : "text-neutral-400 hover:text-white hover:bg-neutral-700"
+    }`;
+
   return (
     <ModalBackdrop onClose={() => onOpenChange(false)}>
-      <ModalBody className="items-start border border-tertiary">
+      <ModalBody className="items-start border border-tertiary max-h-[80vh] overflow-y-auto">
         <BaseModalTitle title={t(I18nKey.CONVERSATION$METRICS_INFO)} />
-        <div className="space-y-4 w-full">
-          {(metrics?.cost !== null || metrics?.usage !== null) && (
-            <div className="rounded-md p-3">
-              <div className="grid gap-3">
-                <CostSection
-                  cost={metrics?.cost ?? null}
-                  maxBudgetPerTask={metrics?.max_budget_per_task ?? null}
-                />
 
-                {metrics?.usage !== null && (
-                  <>
-                    <UsageSection usage={metrics.usage} />
-                    <ContextWindowSection
-                      perTurnToken={metrics.usage.per_turn_token}
-                      contextWindow={metrics.usage.context_window}
+        {/* Tab navigation */}
+        <div className="flex gap-1 mb-3 w-full">
+          <button
+            type="button"
+            className={tabClass("overview")}
+            onClick={() => setActiveTab("overview")}
+          >
+            {t(I18nKey.CONVERSATION$OVERVIEW)}
+          </button>
+          <button
+            type="button"
+            className={tabClass("timeline")}
+            onClick={() => setActiveTab("timeline")}
+          >
+            {t(I18nKey.CONVERSATION$TOKEN_TIMELINE)}
+          </button>
+        </div>
+
+        <div className="space-y-4 w-full">
+          {activeTab === "overview" && (
+            <>
+              {(metrics?.cost !== null || metrics?.usage !== null) && (
+                <div className="rounded-md p-3">
+                  <div className="grid gap-3">
+                    <CostSection
+                      cost={metrics?.cost ?? null}
+                      maxBudgetPerTask={metrics?.max_budget_per_task ?? null}
                     />
-                  </>
-                )}
-              </div>
-            </div>
+
+                    {metrics?.usage !== null && (
+                      <>
+                        <UsageSection usage={metrics.usage} />
+                        <ContextWindowSection
+                          perTurnToken={metrics.usage.per_turn_token}
+                          contextWindow={metrics.usage.context_window}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {!metrics?.cost && !metrics?.usage && <EmptyState />}
+            </>
           )}
 
-          {!metrics?.cost && !metrics?.usage && <EmptyState />}
+          {activeTab === "timeline" && <TokenTimelineChart />}
         </div>
       </ModalBody>
     </ModalBackdrop>

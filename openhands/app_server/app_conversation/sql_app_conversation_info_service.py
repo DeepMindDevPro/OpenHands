@@ -21,7 +21,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import AsyncGenerator, cast
+from typing import Any, AsyncGenerator, cast
 from uuid import UUID
 
 from fastapi import Request
@@ -114,6 +114,19 @@ class StoredConversationMetadata(Base):
     # Tags for conversation metadata (e.g., automation context, skills used)
     tags: Mapped[dict[str, str] | None] = mapped_column(
         create_json_type_decorator(dict[str, str]), nullable=True
+    )
+
+    # Token timeline: per-turn token usage snapshots for visualization
+    # Each entry: {turn, prompt_tokens, completion_tokens, per_turn_token,
+    #             context_window, response_id, is_condensed, condenser_prompt_tokens}
+    token_timeline: Mapped[list[dict] | None] = mapped_column(
+        create_json_type_decorator(list[dict]), nullable=True
+    )
+
+    # Condensation details: records of each condensation event
+    # Each entry: {turn, summary, forgotten_event_ids_count}
+    condensation_details: Mapped[list[dict] | None] = mapped_column(
+        create_json_type_decorator(list[dict]), nullable=True
     )
 
 
@@ -388,13 +401,21 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         return info
 
     async def update_conversation_statistics(
-        self, conversation_id: UUID, stats: ConversationStats
+        self,
+        conversation_id: UUID,
+        stats: ConversationStats,
+        is_condensed: bool = False,
+        condensation_summary: str | None = None,
+        condensation_forgotten_count: int = 0,
     ) -> None:
         """Update conversation statistics from stats event data.
 
         Args:
             conversation_id: The ID of the conversation to update
             stats: ConversationStats object containing usage_to_metrics data from stats event
+            is_condensed: Whether a condensation event occurred in the same batch
+            condensation_summary: Summary text from the condensation event (if any)
+            condensation_forgotten_count: Number of events forgotten by condensation (if any)
         """
         # Extract agent metrics from usage_to_metrics
         usage_to_metrics = stats.usage_to_metrics
@@ -464,27 +485,138 @@ class SQLAppConversationInfoService(AppConversationInfoService):
         if per_turn_token is not None:
             stored.per_turn_token = per_turn_token
 
+        # --- Token Timeline: append per-turn token usage snapshots ---
+        self._append_token_timeline(
+            stored, agent_metrics, is_condensed, usage_to_metrics
+        )
+
+        # --- Condensation Details: record condensation event if present ---
+        if is_condensed:
+            self._append_condensation_detail(
+                stored,
+                condensation_summary=condensation_summary,
+                condensation_forgotten_count=condensation_forgotten_count,
+            )
+
         # Update last_updated_at timestamp
         stored.last_updated_at = utc_now()
 
         await self.db_session.commit()
 
+    def _append_token_timeline(
+        self,
+        stored: StoredConversationMetadata,
+        agent_metrics: Any,
+        is_condensed: bool,
+        usage_to_metrics: dict,
+    ) -> None:
+        """Append per-turn token usage entries to the timeline.
+
+        Strategy: prefer agent_metrics.token_usages[] (per-turn data from SDK
+        runtime). If token_usages is empty (e.g. MetricsSnapshot), fall back
+        to a single snapshot from accumulated_token_usage.
+        """
+        existing_timeline = stored.token_timeline or []
+
+        # Extract condenser prompt_tokens for the latest turn if condensation occurred
+        condenser_prompt_tokens: int | None = None
+        if is_condensed:
+            condenser_metrics = usage_to_metrics.get('condenser')
+            if condenser_metrics and hasattr(
+                condenser_metrics, 'accumulated_token_usage'
+            ):
+                condenser_usage = condenser_metrics.accumulated_token_usage
+                if condenser_usage:
+                    condenser_prompt_tokens = condenser_usage.prompt_tokens
+
+        token_usages_list = getattr(agent_metrics, 'token_usages', None)
+        if token_usages_list:
+            # SDK runtime provides per-turn token usage data
+            new_entries: list[dict[str, Any]] = []
+            for tu in token_usages_list:
+                turn_number = len(existing_timeline) + len(new_entries) + 1
+                entry = {
+                    'turn': turn_number,
+                    'prompt_tokens': getattr(tu, 'prompt_tokens', 0) or 0,
+                    'completion_tokens': getattr(tu, 'completion_tokens', 0) or 0,
+                    'per_turn_token': getattr(tu, 'per_turn_token', 0) or 0,
+                    'context_window': getattr(tu, 'context_window', 0) or 0,
+                    'response_id': getattr(tu, 'response_id', '') or '',
+                    'is_condensed': is_condensed,
+                    'condenser_prompt_tokens': condenser_prompt_tokens,
+                }
+                new_entries.append(entry)
+            stored.token_timeline = existing_timeline + new_entries
+        else:
+            # Fallback: use accumulated_token_usage snapshot
+            accumulated_usage = getattr(agent_metrics, 'accumulated_token_usage', None)
+            if not accumulated_usage:
+                return
+            turn_number = len(existing_timeline) + 1
+            entry = {
+                'turn': turn_number,
+                'prompt_tokens': getattr(accumulated_usage, 'prompt_tokens', 0) or 0,
+                'completion_tokens': getattr(accumulated_usage, 'completion_tokens', 0)
+                or 0,
+                'per_turn_token': getattr(accumulated_usage, 'per_turn_token', 0) or 0,
+                'context_window': getattr(accumulated_usage, 'context_window', 0) or 0,
+                'response_id': getattr(accumulated_usage, 'response_id', '') or '',
+                'is_condensed': is_condensed,
+                'condenser_prompt_tokens': condenser_prompt_tokens,
+            }
+            stored.token_timeline = existing_timeline + [entry]
+
+    def _append_condensation_detail(
+        self,
+        stored: StoredConversationMetadata,
+        condensation_summary: str | None,
+        condensation_forgotten_count: int,
+    ) -> None:
+        """Append a condensation detail entry."""
+        existing_details = stored.condensation_details or []
+        current_turn = len(stored.token_timeline or [])
+        detail = {
+            'turn': current_turn,
+            'summary': condensation_summary or '',
+            'forgotten_event_ids_count': condensation_forgotten_count,
+        }
+        stored.condensation_details = existing_details + [detail]
+
     async def process_stats_event(
         self,
         event: ConversationStateUpdateEvent,
         conversation_id: UUID,
+        is_condensed: bool = False,
+        condensation_summary: str | None = None,
+        condensation_forgotten_count: int = 0,
     ) -> None:
         """Process a stats event and update conversation statistics.
 
         Args:
             event: The ConversationStateUpdateEvent with key='stats'
             conversation_id: The ID of the conversation to update
+            is_condensed: Whether a condensation event occurred in the same batch
+            condensation_summary: Summary text from the condensation event (if any)
+            condensation_forgotten_count: Number of events forgotten by condensation (if any)
         """
         try:
             # Parse event value into ConversationStats model for type safety
             # event.value can be a dict (from JSON deserialization) or a ConversationStats object
             event_value = event.value
             conversation_stats: ConversationStats | None = None
+
+            logger.info(
+                'TOKEN-TIMELINE: process_stats_event called for %s, '
+                'value_type=%s, is_dict=%s, has_usage_to_metrics=%s',
+                conversation_id,
+                type(event_value).__name__,
+                isinstance(event_value, dict),
+                hasattr(event_value, 'usage_to_metrics')
+                if not isinstance(event_value, dict)
+                else 'usage_to_metrics' in event_value
+                if isinstance(event_value, dict)
+                else False,
+            )
 
             if isinstance(event_value, ConversationStats):
                 # Already a ConversationStats object
@@ -500,9 +632,20 @@ class SQLAppConversationInfoService(AppConversationInfoService):
                 conversation_stats = ConversationStats.model_validate(stats_dict)
 
             if conversation_stats and conversation_stats.usage_to_metrics:
+                logger.info(
+                    'TOKEN-TIMELINE: Parsed stats OK for %s, usage_to_metrics keys=%s',
+                    conversation_id,
+                    list(conversation_stats.usage_to_metrics.keys())
+                    if isinstance(conversation_stats.usage_to_metrics, dict)
+                    else type(conversation_stats.usage_to_metrics).__name__,
+                )
                 # Pass ConversationStats object directly for type safety
                 await self.update_conversation_statistics(
-                    conversation_id, conversation_stats
+                    conversation_id,
+                    conversation_stats,
+                    is_condensed=is_condensed,
+                    condensation_summary=condensation_summary,
+                    condensation_forgotten_count=condensation_forgotten_count,
                 )
         except Exception:
             logger.exception(
@@ -516,6 +659,31 @@ class SQLAppConversationInfoService(AppConversationInfoService):
             StoredConversationMetadata.conversation_version == 'V1'
         )
         return query
+
+    async def get_token_timeline(self, conversation_id: UUID) -> dict:
+        """Get the token timeline and condensation details for a conversation.
+
+        Args:
+            conversation_id: The ID of the conversation
+
+        Returns:
+            A dict with 'timeline' (list of per-turn token entries) and
+            'condensation_details' (list of condensation event records)
+        """
+        query = await self._secure_select()
+        query = query.where(
+            StoredConversationMetadata.conversation_id == str(conversation_id)
+        )
+        result = await self.db_session.execute(query)
+        stored = result.scalar_one_or_none()
+
+        if not stored:
+            return {'timeline': [], 'condensation_details': []}
+
+        return {
+            'timeline': stored.token_timeline or [],
+            'condensation_details': stored.condensation_details or [],
+        }
 
     def _to_info(
         self,

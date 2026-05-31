@@ -401,11 +401,36 @@ async def on_event(
             *[event_service.save_event(conversation_id, event) for event in events]
         )
 
+        # Detect CondensationEvents in this batch for correlation with stats events
+        is_condensed = False
+        condensation_summary: str | None = None
+        condensation_forgotten_count = 0
+        for event in events:
+            if hasattr(event, 'forgotten_event_ids'):
+                # This is a CondensationEvent
+                is_condensed = True
+                condensation_summary = getattr(event, 'summary', None)
+                forgotten_ids = getattr(event, 'forgotten_event_ids', [])
+                condensation_forgotten_count = (
+                    len(forgotten_ids) if forgotten_ids else 0
+                )
+
         # Process stats events for V1 conversations
         for event in events:
             if isinstance(event, ConversationStateUpdateEvent) and event.key == 'stats':
+                _logger.info(
+                    'TOKEN-TIMELINE: Processing stats event for conversation %s, '
+                    'is_condensed=%s, event_value_type=%s',
+                    conversation_id,
+                    is_condensed,
+                    type(event.value).__name__,
+                )
                 await app_conversation_info_service.process_stats_event(
-                    event, conversation_id
+                    event,
+                    conversation_id,
+                    is_condensed=is_condensed,
+                    condensation_summary=condensation_summary,
+                    condensation_forgotten_count=condensation_forgotten_count,
                 )
 
         # Analytics: conversation terminal state detection

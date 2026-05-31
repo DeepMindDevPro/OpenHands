@@ -9,6 +9,7 @@ import {
   isPlanningFileEditorObservationEvent,
   isHookExecutionEvent,
   isACPToolCallEvent,
+  isCondensationEvent,
 } from "#/types/v1/type-guards";
 import { useConfig } from "#/hooks/query/use-config";
 import { useConversationStore } from "#/stores/conversation-store";
@@ -26,6 +27,7 @@ import {
 } from "./event-message-components";
 import { createSkillReadyEvent } from "./event-content-helpers/create-skill-ready-event";
 import { shouldShowPlanPreview } from "./hooks/use-plan-preview-events";
+import { CondensationMarker } from "../../features/chat/condensation-marker";
 
 interface EventMessageProps {
   event: OpenHandsEvent & { isFromPlanningAgent?: boolean };
@@ -159,6 +161,15 @@ export function EventMessage({
   if (isACPToolCallEvent(event)) {
     return (
       <GenericEventMessageWrapper event={event} isLastMessage={isLastMessage} />
+    );
+  }
+
+  // Condensation events — render as inline marker in the chat stream
+  if (isCondensationEvent(event)) {
+    const forgottenCount = event.forgotten_event_ids?.length ?? 0;
+    const { summary } = event;
+    return (
+      <CondensationMarker forgottenCount={forgottenCount} summary={summary} />
     );
   }
 
